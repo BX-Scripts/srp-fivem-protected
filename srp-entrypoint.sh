@@ -1,32 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LIST_URL="https://fivembackdoor.info/malicious-domains"
-MARK_START="# SRP_BACKDOOR_BLOCK_START"
-MARK_END="# SRP_BACKDOOR_BLOCK_END"
+URL="https://fivembackdoor.info/malicious-domains"
+S="# SRP_BACKDOOR_BLOCK_START"
+E="# SRP_BACKDOOR_BLOCK_END"
 
+TMP="/tmp/srp_bd_list.txt"
+DOM="/tmp/srp_bd_domains.txt"
 HASH_FILE="/home/container/.srp_backdoor_hash"
-TMP_LIST="/tmp/srp_backdoor_list.txt"
 
 log(){ echo "[srp-protect] $*"; }
 
-fetch_list() {
-  # vormistab ridadeks: "127.0.0.1 domain"
-  curl -fsSL --connect-timeout 3 --max-time 8 "$LIST_URL" \
-  | awk '{for (i=1; i<=NF; i+=2) print $i, $(i+1)}' > "$TMP_LIST"
+fetch() {
+  curl -fsSL --connect-timeout 3 --max-time 8 "$URL" > "$TMP"
 }
 
-calc_hash() {
-  sha256sum "$TMP_LIST" | awk '{print $1}'
+extract_domains() {
+  # eeldus: list on kujul "IP domain IP domain ..."
+  # võta ainult domeenid, üks per rida
+  awk '{for(i=2;i<=NF;i+=2) print $i}' "$TMP" \
+    | tr -d '\r' \
+    | sed '/^$/d' \
+    | sort -u > "$DOM"
+}
+
+hash_domains() {
+  sha256sum "$DOM" | awk '{print $1}'
 }
 
 hosts_has_block() {
-  grep -qF "$MARK_START" /etc/hosts 2>/dev/null
+  grep -qF "$S" /etc/hosts 2>/dev/null
 }
 
 remove_block() {
   if hosts_has_block; then
-    awk -v s="$MARK_START" -v e="$MARK_END" '
+    awk -v s="$S" -v e="$E" '
       $0==s {skip=1; next}
       $0==e {skip=0; next}
       !skip {print}
@@ -36,34 +44,36 @@ remove_block() {
 
 add_block() {
   {
-    echo "$MARK_START"
-    cat "$TMP_LIST"
-    echo "$MARK_END"
+    echo "$S"
+    # IPv4 sinkhole
+    awk '{print "0.0.0.0", $0}' "$DOM"
+    # IPv6 sinkhole (muidu IPv6 läheb läbi)
+    awk '{print "::", $0}' "$DOM"
+    echo "$E"
   } >> /etc/hosts
 }
 
-# Tee blokk ainult siis, kui oleme root (Dockerfile seab USER root)
+# Tee blokk ainult rootina
 if [ "$(id -u)" = "0" ]; then
   mkdir -p /home/container
 
-  if fetch_list; then
-    NEW_HASH="$(calc_hash)"
+  if fetch; then
+    extract_domains
+    NEW_HASH="$(hash_domains)"
     OLD_HASH="$(cat "$HASH_FILE" 2>/dev/null || true)"
 
-    # Kui blokk juba olemas ja list sama -> ära muuda midagi
     if hosts_has_block && [ "$NEW_HASH" = "$OLD_HASH" ]; then
-      log "list muutumatu ja blokk olemas -> ei muuda midagi"
+      log "list sama ja blokk olemas -> ei muuda midagi"
     else
       remove_block
       add_block
       echo "$NEW_HASH" > "$HASH_FILE"
-      log "blokk uuendatud (hash=$NEW_HASH)"
+      log "blokk uuendatud (domeenid=$(wc -l < "$DOM"))"
     fi
   else
-    log "list ei tulnud kätte -> ei muuda /etc/hosts, lasen serveril startida"
+    log "list ei tulnud kätte -> ei muuda /etc/hosts"
   fi
 fi
 
-# Anna juhtimine tagasi originaalsele base image entrypointile
+# Jätka base image entrypointiga (Permission denied fix)
 exec /bin/bash /entrypoint.sh "$@"
-
