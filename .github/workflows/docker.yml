@@ -27,4 +27,5 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/BX-Scripts/srp-fivem-protected:latest
+          tags: ghcr.io/bx-scripts/srp-fivem-protected:latest
+
