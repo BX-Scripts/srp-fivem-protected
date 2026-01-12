@@ -11,6 +11,7 @@ TMP_LIST="/tmp/srp_backdoor_list.txt"
 log(){ echo "[srp-protect] $*"; }
 
 fetch_list() {
+  # vormistab ridadeks: "127.0.0.1 domain"
   curl -fsSL --connect-timeout 3 --max-time 8 "$LIST_URL" \
   | awk '{for (i=1; i<=NF; i+=2) print $i, $(i+1)}' > "$TMP_LIST"
 }
@@ -41,7 +42,7 @@ add_block() {
   } >> /etc/hosts
 }
 
-# Kaitse ainult siis, kui oleme root
+# Tee blokk ainult siis, kui oleme root (Dockerfile seab USER root)
 if [ "$(id -u)" = "0" ]; then
   mkdir -p /home/container
 
@@ -49,6 +50,7 @@ if [ "$(id -u)" = "0" ]; then
     NEW_HASH="$(calc_hash)"
     OLD_HASH="$(cat "$HASH_FILE" 2>/dev/null || true)"
 
+    # Kui blokk juba olemas ja list sama -> ära muuda midagi
     if hosts_has_block && [ "$NEW_HASH" = "$OLD_HASH" ]; then
       log "list muutumatu ja blokk olemas -> ei muuda midagi"
     else
@@ -58,9 +60,9 @@ if [ "$(id -u)" = "0" ]; then
       log "blokk uuendatud (hash=$NEW_HASH)"
     fi
   else
-    log "list ei tulnud kätte -> ei muuda /etc/hosts"
+    log "list ei tulnud kätte -> ei muuda /etc/hosts, lasen serveril startida"
   fi
 fi
 
-# Anna juhtimine base image originaal entrypointile (see hoiab serveri normaalselt käimas)
+# Anna juhtimine tagasi originaalsele base image entrypointile
 exec /entrypoint.sh "$@"
