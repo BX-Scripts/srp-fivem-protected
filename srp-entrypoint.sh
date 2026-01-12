@@ -65,4 +65,5 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 # Anna juhtimine tagasi originaalsele base image entrypointile
-exec /entrypoint.sh "$@"
+exec /bin/bash /entrypoint.sh "$@"
+
